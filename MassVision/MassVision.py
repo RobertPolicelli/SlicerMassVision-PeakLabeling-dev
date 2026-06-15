@@ -11,6 +11,16 @@ import logging
 import os
 from MassVisionLib.Logic import * 
 
+#Robert imports
+import pandas as pd
+
+try:
+	import openpyxl
+	from openpyxl.styles import Font
+except ModuleNotFoundError:
+	slicer.util.pip_install("openpyxl")
+	import openpyxl
+	from openpyxl.styles import Font
 
 class MassVision(ScriptedLoadableModule):
 	"""
@@ -196,63 +206,6 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		self.ui.statGroup2Lab.setVisible(False)
 		self.ui.statGroup2combo.setVisible(False)
 
-		# --- Robert Addition of Buttons and Items For Peak Labeling ---
-		self.current_results_df = None
-		self.ui.inputtedpeakslineedit.setPlaceholderText("e.g., 302.1594, 281.231")
-		self.ui.moleculetoleranacelineedit.setPlaceholderText("e.g., 0.1, 0.005") 
-		# Adduct button setup
-		self.ui.exportpeaklabelsCSVbutton.connect('clicked(bool)', self.onExportPeakLabelExcel)
-		self.ui.loadmzvaluescsvpushButton.connect('clicked(bool)', self.onLoadMzValuesCsv)
-		self.ui.loadmzvaluescsvpushButton.connect('clicked(bool)', self.onLoadMzValuesCsv)
-		# Radiobutton setup
-		self.ui.findclosestcandidateradioButton.setChecked(True) # Set the default starting button
-		self.buttonGroup = qt.QButtonGroup()
-		self.buttonGroup.addButton(self.ui.findclosestcandidateradioButton)
-		self.buttonGroup.addButton(self.ui.findallcandidatesradioButton)
-		self.buttonGroup.buttonClicked.connect(self.onRadioButtonClicked)
-		
-		# --- Robert Addition for link opening ----
-		self.ui.displaypatwaystextbrowser.setOpenLinks(False)
-		self.ui.displaypatwaystextbrowser.anchorClicked.connect(self.onLinkClicked)
-		layoutManager = slicer.app.layoutManager()
-		self.redWidget = layoutManager.sliceWidget('Red')
-			# Create a Container to hold the web UI
-		self.webContainer = qt.QWidget()
-		self.webContainer.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding) 
-		self.webContainerLayout = qt.QVBoxLayout(self.webContainer)
-		self.webContainerLayout.setContentsMargins(0, 0, 0, 0) # Full screen, no margins
-			# Create the "Close" button
-		self.closeBrowserButton = qt.QPushButton("Close Pathway Explorer (Return to Image)")
-		self.closeBrowserButton.setStyleSheet("background-color: #d9534f; color: white; font-weight: bold; padding: 8px;")
-		self.closeBrowserButton.clicked.connect(self.hideInternalBrowser)
-			# Create the Web View and force it to expand
-		self.internalBrowser = slicer.qSlicerWebWidget()
-		self.internalBrowser.setSizePolicy(qt.QSizePolicy.Expanding, qt.QSizePolicy.Expanding)
-			# Add the button and browser to the Container
-		self.webContainerLayout.addWidget(self.closeBrowserButton)
-		self.webContainerLayout.addWidget(self.internalBrowser, 1) 
-			# Insert the Container at the top of the Red node with a stretch factor
-		self.redWidget.layout().insertWidget(0, self.webContainer, 1) 
-		self.webContainer.hide()
-
-		# --- UI Setup for Peak Labeling ---
-			# Configure the display table created in Qt Designer
-		self.ui.moleculesTableWidget.setColumnCount(7)
-		self.ui.moleculesTableWidget.setHorizontalHeaderLabels(['Select', 'Searched m/z', 'Adduct', 'Molecule', 'Source ID','KEGG ID', 'Error'])
-		header = self.ui.moleculesTableWidget.horizontalHeader()
-			# Shrink the Checkbox, m/z, and Adduct columns to be as small as possible
-		header.setSectionResizeMode(0, qt.QHeaderView.ResizeToContents) 
-		header.setSectionResizeMode(1, qt.QHeaderView.ResizeToContents) 
-		header.setSectionResizeMode(2, qt.QHeaderView.ResizeToContents)
-			# Stretch the Molecule Name column to absorb all the extra empty space
-		header.setSectionResizeMode(3, qt.QHeaderView.Stretch)
-			# Shrink the KEGG ID and Error columns
-		header.setSectionResizeMode(4, qt.QHeaderView.ResizeToContents)
-		header.setSectionResizeMode(5, qt.QHeaderView.ResizeToContents)
-		header.setSectionResizeMode(6, qt.QHeaderView.ResizeToContents)
-			# Connect the button created in Qt Designer
-		self.ui.searchPathwaysButton.connect('clicked(bool)', self.onSearchPathways)
-		# ------- End of Robert Additions for this section --------
 
 		# Set logo in UI
 		logo_path = self.resourcePath('Icons/UI_nameM.png')
@@ -270,7 +223,7 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 		# Set tab widget tooltip and icons
 		# ---Robert Added Icon Name 'label'------
-		icon_names = ['home', 'file', 'visualization', 'dataset', 'alignment', 'preprocess', 'stat', 'train', 'report', 'inference', 'label']
+		icon_names = ['home', 'file', 'visualization', 'dataset', 'alignment', 'preprocess', 'stat', 'train', 'report', 'inference', 'pathway']
 		for i in range(self.ui.tabWidget.count):
 			tabText = self.ui.tabWidget.tabText(i)
 			self.ui.tabWidget.setTabText(i, "")            
@@ -326,7 +279,7 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		self.ui.Go2tab6.clicked.connect(lambda: self.ui.tabWidget.setCurrentIndex(6))
 		self.ui.Go2tab7.clicked.connect(lambda: self.ui.tabWidget.setCurrentIndex(7))
 		self.ui.Go2tab8.clicked.connect(lambda: self.ui.tabWidget.setCurrentIndex(8))
-		self.ui.Go2tab8.clicked.connect(lambda: self.ui.tabWidget.setCurrentIndex(9))
+		self.ui.Go2tab9.clicked.connect(lambda: self.ui.tabWidget.setCurrentIndex(9))
 
 		self.ui.userManual.clicked.connect(
 			lambda: qt.QDesktopServices.openUrl(qt.QUrl("https://slicermassvision.readthedocs.io/")))
@@ -390,6 +343,9 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		self.ui.ROIforLocalContrast.connect("clicked(bool)", self.onROIforLocalContrast)
 		self.dataInfo = ''
 		self.ui.ContrastThumbnail.connect("clicked(bool)", self.onContrastThumbnail)
+
+		self.ui.saveProjection.connect("clicked(bool)", self.onSaveProjection)
+		self.ui.loadProjection.connect("clicked(bool)", self.onLoadProjection)
 
 		self.ui.NLVisMethod.currentTextChanged.connect(self.onNLVisMethod)
 		self.ui.UmapButton.connect("clicked(bool)", self.onUMAPVis)
@@ -508,7 +464,6 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		# Results
 		self.model_results = ''
 
-
 		# Deployment
 		self.ui.deploySelect.connect("clicked(bool)", self.onDeploySelect)
 		self.ui.deployImport.connect("clicked(bool)", self.onDeployLoad)
@@ -535,6 +490,51 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 		self.ui.deployRun.connect("clicked(bool)", self.onApplyDeployment)	
 
+		# Pathway analysis
+
+		# --- Robert Addition of Buttons and Items For Peak Labeling ---
+		self.current_results_df = None
+		self.ui.inputtedpeakslineedit.setPlaceholderText("e.g., 302.1594, 281.231")
+		self.ui.moleculetoleranacelineedit.setPlaceholderText("e.g., 0.1, 0.005") 
+		# Adduct button setup
+		self.ui.exportpeaklabelsCSVbutton.connect('clicked(bool)', self.onExportPeakLabelExcel)
+		self.ui.loadmzvaluescsvpushButton.connect('clicked(bool)', self.onLoadMzValuesCsv)
+		# Radiobutton setup
+		self.ui.findclosestcandidateradioButton.setChecked(True) # Set the default starting button
+		self.buttonGroup = qt.QButtonGroup()
+		self.buttonGroup.addButton(self.ui.findclosestcandidateradioButton)
+		self.buttonGroup.addButton(self.ui.findallcandidatesradioButton)
+		self.buttonGroup.buttonClicked.connect(self.onRadioButtonClicked)
+		# Connect the molecule table export button
+		self.ui.exportMoleculeLabelsButton.connect('clicked(bool)', self.onExportMoleculeLabels)
+		
+		# --- Robert Addition for link opening ----
+		self.ui.displaypatwaystextbrowser.setOpenLinks(False)
+		self.ui.displaypatwaystextbrowser.anchorClicked.connect(self.onLinkClicked)
+
+		# Create and setup browser view
+		self._setupBrowserOnlyView()
+
+		# --- UI Setup for Peak Labeling ---
+			# Configure the display table created in Qt Designer
+		self.ui.moleculesTableWidget.setColumnCount(7)
+		self.ui.moleculesTableWidget.setHorizontalHeaderLabels(['Select', 'Searched m/z', 'Adduct', 'Molecule', 'Source ID','KEGG ID', 'Error'])
+		header = self.ui.moleculesTableWidget.horizontalHeader()
+			# Shrink the Checkbox, m/z, and Adduct columns to be as small as possible
+		header.setSectionResizeMode(0, qt.QHeaderView.ResizeToContents) 
+		header.setSectionResizeMode(1, qt.QHeaderView.ResizeToContents) 
+		header.setSectionResizeMode(2, qt.QHeaderView.ResizeToContents)
+			# Stretch the Molecule Name column to absorb all the extra empty space
+		header.setSectionResizeMode(3, qt.QHeaderView.Stretch)
+			# Shrink the KEGG ID and Error columns
+		header.setSectionResizeMode(4, qt.QHeaderView.ResizeToContents)
+		header.setSectionResizeMode(5, qt.QHeaderView.ResizeToContents)
+		header.setSectionResizeMode(6, qt.QHeaderView.ResizeToContents)
+			# Connect the button created in Qt Designer
+		self.ui.searchPathwaysButton.connect('clicked(bool)', self.onSearchPathways)
+		# ------- End of Robert Additions for this section --------
+
+
 		# Mode change for ViT Embeddings
 		modeButtonGroup = qt.QButtonGroup()
 		modeButtonGroup.setExclusive(True)
@@ -550,6 +550,156 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 		# Make sure parameter node is initialized (needed for module reload)
 		self.initializeParameterNode()
+
+		# --- Check HMDB Database Version and Update Dropdown ---
+		db_path = self.logic.default_hmdb_db_path()
+		hmdb_label = self.logic.get_hmdb_version_label(db_path)
+		
+		# Find the item that currently says "HMDB" and replace it
+		for i in range(self.ui.databasecombobox.count):
+			if "HMDB" in self.ui.databasecombobox.itemText(i):
+				self.ui.databasecombobox.setItemText(i, hmdb_label)
+
+
+	def _setupBrowserOnlyView(self):
+		#
+		# Main browser widget
+		#
+		self.internalBrowser = slicer.qSlicerWebWidget()
+		self.internalBrowser.handleExternalUrlWithDesktopService = False
+
+		webView = self.internalBrowser.webView()
+
+		#
+		# Toolbar
+		#
+		self.browserToolbar = qt.QToolBar()
+		self.browserToolbar.setMovable(False)
+		self.browserToolbar.setFloatable(False)
+		self.browserToolbar.setIconSize(qt.QSize(16, 16))
+		self.browserToolbar.setStyleSheet("""
+		QToolBar {
+			background: #006666;
+			border: 0px;
+			spacing: 4px;
+			padding: 2px;
+		}
+		QToolButton {
+			padding: 4px 6px;
+		}
+		QLabel {
+			font-weight: bold;
+			padding-left: 4px;
+			padding-right: 8px;
+		}
+		""")
+
+		self.browserTitleLabel = qt.QLabel("Browser View ")
+		self.browserToolbar.addWidget(self.browserTitleLabel)
+
+		self.backAction = self.browserToolbar.addAction("Back")
+		self.forwardAction = self.browserToolbar.addAction("Forward")
+		self.reloadAction = self.browserToolbar.addAction("Reload")
+
+		self.backAction.connect("triggered()", webView.back)
+		self.forwardAction.connect("triggered()", webView.forward)
+		self.reloadAction.connect("triggered()", webView.reload)
+
+		#
+		# Address bar
+		#
+		self.addressBar = qt.QLineEdit()
+		self.addressBar.setPlaceholderText("Enter URL and press Enter")
+		self.addressBar.connect("returnPressed()", self.onAddressEntered)
+		self.browserToolbar.addWidget(self.addressBar)
+
+		#
+		# Keep toolbar state and address bar in sync
+		#
+		def updateNavigationState(*args):
+			try:
+				self.backAction.enabled = webView.history().canGoBack()
+				self.forwardAction.enabled = webView.history().canGoForward()
+			except Exception:
+				self.backAction.enabled = True
+				self.forwardAction.enabled = True
+
+			try:
+				self.addressBar.setText(webView.url().toString())
+			except Exception:
+				pass
+
+		webView.loadFinished.connect(updateNavigationState)
+		webView.urlChanged.connect(updateNavigationState)
+
+		#
+		# Keep toolbar state and address bar in sync
+		#
+		def updateNavigationState(*args):
+			try:
+				self.backAction.enabled = webView.history().canGoBack()
+				self.forwardAction.enabled = webView.history().canGoForward()
+			except Exception:
+				self.backAction.enabled = True
+				self.forwardAction.enabled = True
+
+			try:
+				self.addressBar.setText(webView.url().toString())
+			except Exception:
+				pass
+
+		webView.loadFinished.connect(updateNavigationState)
+		webView.urlChanged.connect(updateNavigationState)
+
+		#
+		# Container widget shown in the Slicer view area
+		#
+		self.browserViewWidget = qt.QWidget()
+		browserLayout = qt.QVBoxLayout(self.browserViewWidget)
+		browserLayout.setContentsMargins(0, 0, 0, 0)
+		browserLayout.setSpacing(0)
+		browserLayout.addWidget(self.browserToolbar)
+		browserLayout.addWidget(self.internalBrowser)
+
+		#
+		# Register custom singleton view
+		#
+		self.browserViewFactory = slicer.qSlicerSingletonViewFactory()
+		self.browserViewFactory.setTagName("MassVisionBrowserView")
+		self.browserViewFactory.setWidget(self.browserViewWidget)
+		slicer.app.layoutManager().registerViewFactory(self.browserViewFactory)
+
+		#
+		# Layout that contains only the browser view
+		#
+		self.browserOnlyLayoutId = 501
+
+		layoutXml = """
+		<layout type="vertical">
+			<item>
+			<MassVisionBrowserView />
+			</item>
+		</layout>
+		"""
+
+		layoutNode = slicer.app.layoutManager().layoutLogic().GetLayoutNode()
+		layoutNode.AddLayoutDescription(self.browserOnlyLayoutId, layoutXml)
+
+	def showBrowserOnlyView(self, url="https://example.com"):
+		self.internalBrowser.setUrl(url)
+		slicer.app.layoutManager().setLayout(self.browserOnlyLayoutId)
+
+	def onAddressEntered(self):
+		text = self.addressBar.text.strip()
+		if not text:
+			return
+
+		# Add scheme if missing
+		if "://" not in text:
+			text = "https://" + text
+
+		self.internalBrowser.setUrl(text)
+
 
 
 	### Mode Selector
@@ -1024,6 +1174,24 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		info = 'Global Contrast \n\n' + info
 		self.ui.LoadingsInfo.setText(info)
 
+	def onSaveProjection(self):
+		fileExplorer = qt.QFileDialog()
+		defaultSave = self.logic.savenameBase+"_PCA.pkl"
+		savepath = fileExplorer.getSaveFileName(None, "Save PCA projection", defaultSave, "Pickle Files (*.pkl);;All Files (*)")
+		
+		pixel_norm_method = self.ui.visNorm_spectra.currentText
+		feature_norm_method = self.ui.visNorm_ions.currentText
+		self.logic.pca_export(savepath, pixel_norm_method, feature_norm_method)
+		
+		print(savepath)
+
+	def onLoadProjection(self):
+		fileExplorer = qt.QFileDialog()
+		filePath = fileExplorer.getOpenFileName(None, "Load PCA projection", "", "Pickle Files (*.pkl);;All Files (*)")
+		print(filePath)
+		self.logic.pca_import(filePath)
+		pass
+
 	def onNLVisMethod(self, text):
 		if text=="UMAP":
 			self.ui.NLVisLabel1.setText("n_neighbors")
@@ -1129,8 +1297,9 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		if mode=="cluster":
 			clusterText = self.ui.ClusterInd.currentText
 			cluster_ind = int(clusterText.split(' ')[-1])-1
+			cluster_invert = self.ui.invertCluster_checkBox.isChecked()
 			volcano_mz, dice_score, volcano_fc, volcano_pval, pearson_corr = \
-				self.logic.ViewTableThumbnail(cluster_ind, mode)
+				self.logic.ViewTableThumbnail([cluster_ind, cluster_invert], mode)
 		elif mode=="similarity":
 			sim_thresh_value = self.ui.simHeatmapSlider.value
 			volcano_mz, dice_score, volcano_fc, volcano_pval, pearson_corr = \
@@ -1453,9 +1622,8 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		slicer.util.saveScene(savepath)
 
 
-	# ---- Robert 'Peak Labelling' added to tab_names ------
 	def onTabChange(self, index):
-		tab_names = ['Home', 'Data', 'Visualization', 'Dataset', 'Alignment', 'Preprocessing', 'Statistical', 'AI training', 'AI Report', 'AI deployment', 'Peak Labelling']
+		tab_names = ['Home', 'Data', 'Visualization', 'Dataset', 'Alignment', 'Preprocessing', 'Statistical', 'AI training', 'AI report', 'AI deployment', 'Identification']
 		for i in range(self.ui.tabWidget.count):
 			self.ui.tabWidget.setTabText(i, "")     
 		self.ui.tabWidget.setTabText(index, tab_names[index])
@@ -1493,16 +1661,16 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 			for segName in segNames:
 				self.ui.depSegListCombo.addItem(segName)
 	
-	#----- Robert Peak Labeling Running/Functions to do so -------
+	#----- Robert Peak Labeling Running/Functions -------
 	def onRadioButtonClicked(self):
 		"""Returns True if 'find all' is selected, False if 'find closest' is selected."""
 		if self.ui.findallcandidatesradioButton.isChecked():
 			return True
 		else:
 			return False
+		
 	def onUpdateHMDBDatabase(self):
 		"""Updates the HMDB database by calling the logic function and displays a message box with the result."""
-		import slicer
 		db_path = self.logic.default_hmdb_db_path()	
 		buttonClicked = True
 		result = self.logic.check_and_build_hmdb(db_path, buttonClicked)
@@ -1512,7 +1680,6 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 	def onLabelPeaks(self):
 		' Function to label the peaks based on the inputted m/z values, tolerance, and adducts. '
 		'It also handles the UI updates to show the results in a table and allows for pathway searching. '
-		import slicer
 		#Gather inputs
 		raw_peaks = self.ui.inputtedpeakslineedit.text
 		tolerance_str = self.ui.moleculetoleranacelineedit.text
@@ -1568,7 +1735,8 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		try:
 			# Run the molecule matching logic
 			results_df = self.logic.run_molecule_matching(
-				raw_peaks, tolerance, adducts_text, tol_unit, database_unit, search_all, update_progress
+				raw_peaks, tolerance, adducts_text, tol_unit, database_unit, 
+				search_all, update_progress
 			)
 			self.current_results_df = results_df
 
@@ -1714,16 +1882,109 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 		output_html += "</body></html>"
 		self.ui.displaypatwaystextbrowser.setText(output_html)
 	
+	def onExportMoleculeLabels(self):
+		"""Exports the molecule search results to an Excel file, preserving hyperlinks and dropping the Select column."""
+
+		# 1. Check if there is data to save
+		if not hasattr(self, 'current_results_df') or self.current_results_df is None or self.current_results_df.empty:
+			slicer.util.infoDisplay("There are no molecule results to export. Please run a search first.")
+			return
+
+		# 2. Prompt the user for a save location
+		default_name = "Molecule_Search_Results.xlsx"
+		save_path = qt.QFileDialog.getSaveFileName(
+			None, "Save Molecule Labels as Excel", default_name, "Excel Files (*.xlsx)"
+		)
+		
+		# If the user cancels the dialog, exit
+		if not save_path:
+			return 
+
+		try:
+			# Force the extension to be .xlsx 
+			if not save_path.lower().endswith('.xlsx'):
+				save_path = os.path.splitext(save_path)[0] + '.xlsx'
+
+			# Gather all rows where the checkbox is ticked
+			selected_indices = []
+			for row in range(self.ui.moleculesTableWidget.rowCount):
+				chk_item = self.ui.moleculesTableWidget.item(row, 0)
+				if chk_item is not None and chk_item.checkState() == qt.Qt.Checked:
+					df_idx = chk_item.data(qt.Qt.UserRole)
+					selected_indices.append(df_idx)
+
+			if not selected_indices:
+				slicer.util.errorDisplay("Please select (check) at least one molecule in the table to export.")
+				return
+
+			# 3. Format the DataFrame for export
+			df_to_export = self.current_results_df.loc[selected_indices].copy()
+			
+			# Rename columns to match the UI table headers
+			tol_unit = self.ui.toleranceunitcombobox.currentText
+			rename_dict = {
+				'Searched_m/z': 'Searched m/z',
+				'Adduct': 'Adduct',
+				'COMMON_NAME': 'Molecule',
+				'Source ID': 'Source ID',
+				'KEGG_ID': 'KEGG ID',
+				'DELTA': f'Error ({tol_unit})'
+			}
+			
+			# Only rename columns that exist
+			df_to_export = df_to_export.rename(columns={k: v for k, v in rename_dict.items() if k in df_to_export.columns})
+			
+			# Keep only the columns we want to display (filtering out hidden backend columns)
+			cols_to_keep = [v for k, v in rename_dict.items() if v in df_to_export.columns]
+			df_to_export = df_to_export[cols_to_keep]
+
+			# 4. Write to Excel
+			with pd.ExcelWriter(save_path, engine='openpyxl') as writer:
+				df_to_export.to_excel(writer, index=False, sheet_name='Molecules')
+				
+				# Access the underlying workbook to add native links
+				workbook = writer.book
+				worksheet = workbook['Molecules']
+				
+				# Standard Excel hyperlink styling (Blue and Underlined)
+				link_font = Font(color="0563C1", underline="single")
+				
+				# Find which column numbers belong to our IDs (openpyxl is 1-indexed)
+				columns = df_to_export.columns.tolist()
+				kegg_col_idx = columns.index('KEGG ID') + 1 if 'KEGG ID' in columns else None
+				source_col_idx = columns.index('Source ID') + 1 if 'Source ID' in columns else None
+
+				# Iterate through the rows to add hyperlinks
+				for row in range(2, len(df_to_export) + 2): 
+					
+					# Apply link to KEGG ID
+					if kegg_col_idx:
+						kegg_cell = worksheet.cell(row=row, column=kegg_col_idx)
+						val = kegg_cell.value
+						if pd.notna(val) and str(val).startswith('C'):
+							kegg_cell.hyperlink = f"https://www.kegg.jp/entry/{val}"
+							kegg_cell.font = link_font
+							
+					# Apply link to Source ID
+					if source_col_idx:
+						source_cell = worksheet.cell(row=row, column=source_col_idx)
+						val = source_cell.value
+						if pd.notna(val):
+							val_str = str(val)
+							if val_str.startswith('HMDB'):
+								source_cell.hyperlink = f"https://www.hmdb.ca/metabolites/{val_str}"
+								source_cell.font = link_font
+							elif val_str.startswith('LM'):
+								source_cell.hyperlink = f"https://www.lipidmaps.org/databases/lmsd/{val_str}"
+								source_cell.font = link_font
+
+			slicer.util.infoDisplay(f"Molecule labels successfully exported to:\n{save_path}", "Export Complete")
+			
+		except Exception as e:
+			slicer.util.errorDisplay(f"Failed to export Excel file:\n{str(e)}")
+
 	def onExportPeakLabelExcel(self):
 		"""Export the pathway results to an excel file, preserving URLs."""
-		# Import openpyxl for Excel writing and hyperlink support        
-		try:
-			import openpyxl
-			from openpyxl.styles import Font
-		except ModuleNotFoundError:
-			slicer.util.pip_install("openpyxl")
-			import openpyxl
-			from openpyxl.styles import Font
 		
         # Check if there is actually data to save
 		df_to_export = None
@@ -1813,7 +2074,6 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 	def onLoadMzValuesCsv(self):
 		"""Opens a file dialog, reads a CSV, and populates the m/z text box."""
-		import pandas as pd
         # Open a "File Open" dialog window
 		file_path = qt.QFileDialog.getOpenFileName(
             None, 
@@ -1859,14 +2119,9 @@ class MassVisionWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 	def onLinkClicked(self, url):
 		"""Catches the clicked link and opens it inside the Red window."""
-		self.internalBrowser.url = url.toString()
-		
-		# Hide Slicer's native widgets
-		self.redWidget.sliceController().hide()
-		self.redWidget.sliceView().hide()
-		
-		# Show the full-screen container
-		self.webContainer.show()
+		self.internalBrowser.setUrl(url.toString())
+		self.addressBar.setText(url.toString())
+		slicer.app.layoutManager().setLayout(self.browserOnlyLayoutId)
 
 
 	def hideInternalBrowser(self):
